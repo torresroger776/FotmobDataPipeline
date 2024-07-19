@@ -46,10 +46,9 @@ def get_match_data(match_id):
 def extract_fotmob_data(ti):
     season_shot_data = []
     
+    # run Chrome in headless mode
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless")  # run Chrome in headless mode
-    # options.add_argument('--disable-dev-shm-usage')
-    # options.add_argument('--no-sandbox')
+    options.add_argument("--headless")
     # create chrome driver context manager for scraping
     with webdriver.Chrome(service=ChromiumService(ChromeDriverManager(driver_version="125.0.6422.78", chrome_type=ChromeType.CHROMIUM).install()), options=options) as browser:
         # open premier league latest season matches on Fotmob
@@ -171,7 +170,6 @@ def load_fotmob_data(ti):
 
     # service account credentials
     credentials_path = Variable.get('service_account_credentials_path')
-    print(credentials_path)
     credentials = service_account.Credentials.from_service_account_file(credentials_path)
 
     # project id
