@@ -145,7 +145,7 @@ def transform_fotmob_data(ti):
             .merge(team_dim, on='teamId') \
             .merge(player_dim, on='player_name') \
             .merge(shot_type_dim, on='shot_type') \
-            .merge(event_type_dim, on='event_type') \
+            .merge(event_type_dim, on=['event_type', 'situation']) \
             [['shot_id', 'match_id', 'team_id', 'player_id', 
               'shot_type_id', 'event_type_id', 'xG', 'xGOT', 
               'shot_from_x', 'shot_from_y', 'is_blocked', 
