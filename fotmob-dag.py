@@ -137,7 +137,7 @@ def transform_fotmob_data(ti):
     shot_type_dim['shot_type_id'] = shot_type_dim.index
 
     # create event type dimension table
-    event_type_dim = df[['event_type']].drop_duplicates().reset_index(drop=True)
+    event_type_dim = df[['event_type', 'situation']].drop_duplicates().reset_index(drop=True)
     event_type_dim['event_type_id'] = event_type_dim.index
 
     # create fact table
