@@ -1,20 +1,13 @@
 import pandas as pd
 import pandas_gbq
-import time
-import requests
 from datetime import datetime, timedelta
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service as ChromiumService
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import Select
-from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.core.os_manager import ChromeType
+
+from helpers.fotmob import FotmobScraper
+from google.oauth2 import service_account
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
-
-from google.oauth2 import service_account
 
 default_args = {
     'owner': 'me',
@@ -22,73 +15,40 @@ default_args = {
     'retry_delay': timedelta(minutes=5)
 }
 
-def get_match_ids_for_round(browser, round):
-    # open page for matches for the current round
-    browser.get(f'https://www.fotmob.com/leagues/47/matches/premier-league/by-round?season=2023-2024&round={round}')
-    time.sleep(5)
-
-    # extract the match ids of each match in the round
-    match_ids = []
-    links = browser.find_elements(By.CLASS_NAME, 'css-hvo6tv-MatchWrapper')
-    for link in links:
-        match_id = link.get_attribute('href').split('#')[1]
-        if (match_id not in match_ids):
-            match_ids.append(match_id)
-    return match_ids
-
-def get_match_data(match_id):
-    params = {
-        "matchId": match_id
-    }
-    response = requests.get('https://www.fotmob.com/api/matchDetails', params=params)
-    return response.json()
-
 def extract_fotmob_data(ti):
     season_shot_data = []
-    
-    # run Chrome in headless mode
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
-    # create chrome driver context manager for scraping
-    with webdriver.Chrome(service=ChromiumService(ChromeDriverManager(driver_version="125.0.6422.78", chrome_type=ChromeType.CHROMIUM).install()), options=options) as browser:
-        # open premier league latest season matches on Fotmob
-        browser.get('https://www.fotmob.com/leagues/47/matches/premier-league/by-round?season=2023-2024')
-       
-        # extract available rounds
-        select_element = browser.find_element(By.XPATH, "html/body/div/main/main/section/div/div[2]/section/div/div[1]/div/select")
-        select = Select(select_element)
-        options = select.options
-        available_rounds = [option.get_attribute('value') for option in options]
 
-        # populate shot data array
-        for round in available_rounds:
-            # get match ids for current round
-            match_ids = get_match_ids_for_round(browser, round)
+    fms = FotmobScraper('https://www.fotmob.com/leagues/47/matches/premier-league/by-round?season=2023-2024')
 
-            # get match data for each match in the round
-            for match_id in match_ids:
-                # retrieve match data
-                match_data = get_match_data(match_id)
+    # populate shot data array
+    for round in fms.get_available_rounds():
+        # get match ids for current round
+        match_ids = fms.get_match_ids_for_round(round)
 
-                # get home and away teams
-                home_team_name = match_data['general']['homeTeam']['name']
-                home_team_id = match_data['general']['homeTeam']['id']
-                away_team_name = match_data['general']['awayTeam']['name']
-                away_team_id = match_data['general']['awayTeam']['id']
+        # get match data for each match in the round
+        for match_id in match_ids:
+            # retrieve match data
+            match_data = fms.get_match_data(match_id)
 
-                # get shot data
-                shotData = match_data['content']['shotmap']['shots']
+            # get home and away teams
+            home_team_name = match_data['general']['homeTeam']['name']
+            home_team_id = match_data['general']['homeTeam']['id']
+            away_team_name = match_data['general']['awayTeam']['name']
+            away_team_id = match_data['general']['awayTeam']['id']
 
-                # add team data to shots
-                for shot in shotData:
-                    shot['home_team_name'] = home_team_name
-                    shot['home_team_id'] = home_team_id
-                    shot['away_team_name'] = away_team_name
-                    shot['away_team_id'] = away_team_id
-                    shot['matchId'] = match_id
+            # get shot data
+            shotData = match_data['content']['shotmap']['shots']
 
-                # populate season shot data
-                season_shot_data.append(shotData)
+            # add team data to shots
+            for shot in shotData:
+                shot['home_team_name'] = home_team_name
+                shot['home_team_id'] = home_team_id
+                shot['away_team_name'] = away_team_name
+                shot['away_team_id'] = away_team_id
+                shot['matchId'] = match_id
+
+            # populate season shot data
+            season_shot_data.append(shotData)
 
     ti.xcom_push(key='season_shot_data', value=season_shot_data)
 
@@ -147,10 +107,10 @@ def transform_fotmob_data(ti):
             .merge(shot_type_dim, on='shot_type') \
             .merge(event_type_dim, on=['event_type', 'situation']) \
             [['shot_id', 'match_id', 'team_id', 'player_id', 
-              'shot_type_id', 'event_type_id', 'xG', 'xGOT', 
-              'shot_from_x', 'shot_from_y', 'is_blocked', 
-              'blocked_x', 'blocked_y', 'goal_crossed_y', 
-              'goal_crossed_z']]
+            'shot_type_id', 'event_type_id', 'xG', 'xGOT', 
+            'shot_from_x', 'shot_from_y', 'is_blocked', 
+            'blocked_x', 'blocked_y', 'goal_crossed_y', 
+            'goal_crossed_z']]
     
     # output dictionary
     output = {
@@ -181,6 +141,7 @@ def load_fotmob_data(ti):
         table_id = f"fotmob_data.{table_key}"
         # write df to BigQuery table
         pandas_gbq.to_gbq(pd.DataFrame(table), table_id, project_id, credentials=credentials)
+
 
 with DAG(
     dag_id='fotmob_dag',
